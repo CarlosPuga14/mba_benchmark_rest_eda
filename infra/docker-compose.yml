@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # ------------------------------------------------------------------------
+  # EVENT BUS AND CACHE (shred through event bus)
+  # ------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: broker-rabbitmq 
+    ports:
+      - "5672:5672" # AMQP (Python Communication)
+      - "15672:15672" # Web Painel (user: guest / pass: guest)
+    networks:
+      - net_events
+    
+  redis:
+    image: redis:7-alpine
+    container_name: idempotency-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - net_events
+
+  # ------------------------------------------------------------------------
+  # ISOLATED DATABASES (Database-per-Service)
+  # ------------------------------------------------------------------------
+  db_checkout:
+    image: postgres:16-alpine
+    container_name: postgres-checkout
+    environment:
+      POSTGRES_DB: db_checkout
+      POSTGRES_USER: user_checkout
+      POSTGRES_PASSWORD: pass_checkout
+    ports:
+      - "5432:5432"
+    networks:
+      - net_checkout
+
+  db_storage:
+    image: postgres:16-alpine
+    container_name: postgres-storage
+    environment:
+      POSTGRES_DB: db_storage
+      POSTGRES_USER: user_storage
+      POSTGRES_PASSWORD: pass_storage
+    ports:
+      - "5433:5432"
+    networks:
+      - net_storage
+      
+  db_payment:
+    image: postgres:16-alpine
+    container_name: postgres-db_payment
+    environment:
+      POSTGRES_DB: db_payment
+      POSTGRES_USER: user_payment
+      POSTGRES_PASSWORD: pass_payment
+    ports:
+      - "5434:5432"
+    networks:
+      - net_payment
+
+  # ------------------------------------------------------------------------
+  # ISOLATED VIRTUAL NETS (Ensure that there is no cross access)
+  # ------------------------------------------------------------------------
+networks:
+  net_checkout:
+    driver: bridge
+  net_storage:
+    driver: bridge
+  net_payment:
+    driver: bridge
+  net_events:
+    driver: bridge
