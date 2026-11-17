@@ -50,7 +50,7 @@ services:
       
   db_payment:
     image: postgres:16-alpine
-    container_name: postgres-db_payment
+    container_name: postgres-payment
     environment:
       POSTGRES_DB: db_payment
       POSTGRES_USER: user_payment
