@@ -1,11 +1,13 @@
 from django.db import transaction 
-from .models import Product, StockReservation
+from uuid import UUID
 
-class OutOfStockError(Exception):
+from .models import Product, InventoryReservation
+
+class OutOfinventoryError(Exception):
     pass 
 
 
-def reserve_stock_strict(order_id:str, sku:str, quantity:int=1) -> bool:
+def reserve_inventory_strict(order_id:UUID, sku:str, quantity:int=1) -> bool:
     """
     Execute the reservation using row-level locking (select_for_update) to prevent race conditions
     when dealing with single-unit inventory
@@ -14,23 +16,23 @@ def reserve_stock_strict(order_id:str, sku:str, quantity:int=1) -> bool:
         product = Product.objects.select_for_update().get(sku=sku)
 
         if product.available_quantity < quantity:
-            raise OutOfStockError(f"Estoque insuficiente para o SKU {sku}")
+            raise OutOfinventoryError(f"Estoque insuficiente para o SKU {sku}")
 
         product.available_quantity -= quantity
         product.save()
 
-        StockReservation.objects.create(order_id=order_id, product=product, quantity=quantity, status=StockReservation.reserved)
+        InventoryReservation.objects.create(order_id=order_id, product=product, quantity=quantity, status=InventoryReservation.reserved)
 
         return True
 
 
-def compensate_stock_sage(order_id:str) -> bool:
+def compensate_inventory_sage(order_id:UUID) -> bool:
     """
     Compensation Action (Saga Logical Rollback)
     Returns the item to inventory if the payment subsequently fails
     """
     with transaction.atomic():
-        reservation = StockReservation.objects.select_for_update().filter(order_id=order_id, status=StockReservation.reserved).first()
+        reservation = InventoryReservation.objects.select_for_update().filter(order_id=order_id, status=InventoryReservation.reserved).first()
 
         if not reservation:
             return False
@@ -39,7 +41,7 @@ def compensate_stock_sage(order_id:str) -> bool:
         product.available_quantity += reservation.quantity
         product.save()
 
-        reservation.status = StockReservation.compensated
+        reservation.status = InventoryReservation.compensated
         reservation.save()
 
         return True
