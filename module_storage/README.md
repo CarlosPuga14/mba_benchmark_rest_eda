@@ -98,8 +98,7 @@ Executes the compensation action (logical rollback) when a subsequent step in th
 The core event-processing function, decoupled from the network loop to enable isolated unit testing:
 
 * **Metadata Extraction**: Reads `event_id`, `event_type`, and the `data` dictionary from the JSON event.
-* **Strict Idempotency Filter (`if redis_client.exists(event_id):`)**: Checks Redis. If the key already exists, it means the broker has redelivered a duplicate message (*at-least-once delivery*). The function immediately returns `"DUPLICATE_IGNORED"` without accessing PostgreSQL.
-* **Temporary Lock (`redis_client.setex(event_id, 600, "processing")`)**: Stores the event ID in Redis with a time-to-live (TTL) of 600 seconds before starting processing.
+* **Atomic Idempotency Filter (`is_new_event = redis_client.set(event_id, "processando", nx=True, ex=600)`)**: Executes both the existence check (`NX`) and lock creation with a 600-second expiration (`EX`) in a single atomic operation on Redis. If the key already exists (`not is_new_event`), it prevents race conditions across concurrent workers and immediately returns `"DUPLICATE_IGNORED"` without querying PostgreSQL.
 * **Routing `if event_type == "PedidoCriado":`**:
   * Converts `data["order_id"]` to `uuid.UUID` and calls `reserve_stock_strict`.
   * Builds the `next_event` dictionary with `event_type: "EstoqueReservado"` and a new `event_id`.
@@ -139,5 +138,5 @@ The core event-processing function, decoupled from the network loop to enable is
 
 * **`setUp`**: Creates the `MOUSE-01` product (inventory balance of `10`) and initializes mocked objects (`MagicMock`) for the RabbitMQ channel and Redis client.
 * **`test_eda_pedido_criado_success`**: Simulates receiving a `PedidoCriado` event (quantity `3`); validates the `"RESERVED_PUBLISHED"` return value, updated inventory balance of `7`, and a single call to `basic_publish`.
-* **`test_eda_idempotency_blocks_duplicate`**: Sets mock_redis.exists.return_value = True; validates the "DUPLICATE_IGNORED" return value, ensuring that the inventory balance remains at 10 and no message is published.
+* **`test_eda_idempotency_blocks_duplicate`**: Configures `mock_redis.set.return_value = False` (simulating an already existing key under the atomic `SET NX` lock); asserts the `"DUPLICATE_IGNORED"` return value, ensuring the inventory balance remains at `10` and no message is published.
 * **`test_eda_compensate_inventory_saga_rollback`**: Creates a prior reservation of 2 units (inventory balance of 8) and sends a CompensarEstoque event; validates the "COMPENSATED" return value, restoration of the inventory balance to 10, and update of the reservation status to COMPENSATED.
