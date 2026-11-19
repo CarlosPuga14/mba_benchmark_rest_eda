@@ -19,7 +19,7 @@ class StorageEDAWorkTests(TestCase):
         self.mock_redis = MagicMock()
 
         # default: key does not exists in Redis
-        self.mock_redis.exists.return_value = False
+        self.mock_redis.exists.return_value = True
 
 
     def test_eda_order_created_successfully(self):
@@ -51,7 +51,7 @@ class StorageEDAWorkTests(TestCase):
         It must ignore event if event_id already exists in Redis
         """
         # now the key exists
-        self.mock_redis.exists.return_value = True 
+        self.mock_redis.exists.return_value = False 
 
         order_uuid = uuid.uuid4()
         payload = {

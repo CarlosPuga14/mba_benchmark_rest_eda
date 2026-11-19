@@ -18,7 +18,8 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
     data = payload.get("data", {})
 
     # Strict idempotency filter in REDIS (TTL 600s)
-    if redis_client.exists(event_id):
+    is_new_event = redis_client.set(event_id, "processing", nx=True, ex=600)
+    if not is_new_event:
         return "DUPLICATE_IGNORED"
 
     redis_client.setex(event_id, 600, "processing")
