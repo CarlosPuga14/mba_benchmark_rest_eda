@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='StockReservation',
+            name='inventoryReservation',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('order_id', models.CharField(max_length=100, unique=True)),
