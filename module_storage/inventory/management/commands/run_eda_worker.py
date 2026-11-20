@@ -15,7 +15,7 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
     """
     event_id = payload.get("event_id")
     event_type = payload.get("event_type")
-    data = payload.get("data", {})
+    data:dict = payload.get("data", {})
 
     # Strict idempotency filter in REDIS (TTL 600s)
     is_new_event = redis_client.set(event_id, "processing", nx=True, ex=600)
@@ -41,14 +41,14 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
                 properties=pika.BasicProperties(delivery_mode=2)
             )
 
-            redis_client.setex(event_id, 600, "concluded")
+            redis_client.setex(event_id, 600, "completed")
 
             return "RESERVED_PUBLISHED"
 
         elif event_type == "CompensateStock":
             compensate_stock_sage(order_id=order_uuid)
             
-            redis_client.setex(event_id, 600, "concluded")
+            redis_client.setex(event_id, 600, "completed")
             
             return "COMPENSATED"
 
@@ -71,7 +71,7 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
             properties=pika.BasicProperties(delivery_mode=2) 
         )
 
-        redis_client.setex(event_id, 600, "business_failure")
+        redis_client.setex(event_id, 600, "transaction_failure")
 
         return "TRANSACTION_FAILURE_PUBLISHED"
 
@@ -82,7 +82,7 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
 
 
 class Command(BaseCommand):
-    help = "Start the EDA Worker for the Storage Module (RabbitMQ + Redis)"
+    help = "Starts the EDA Worker for the Storage Module (RabbitMQ + Redis)"
 
     def handle(self, *args, **options):
         redis_client = redis.Redis(host="127.0.0.1", port=6379, db=0, decode_responses=True)
