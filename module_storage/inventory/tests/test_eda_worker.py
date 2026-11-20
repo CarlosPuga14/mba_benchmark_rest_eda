@@ -106,3 +106,58 @@ class StorageEDAWorkTests(TestCase):
 
         reservation = StockReservation.objects.get(order_id=order_uuid)
         self.assertEqual(reservation.status, StockReservation.compensated)
+
+
+    def test_eda_duplicate_compensation_does_not_inflate_stock(self):
+        """
+        It must not add storage twice if CompensateStock arrives again
+        """
+        order_uuid = uuid.uuid4()
+        
+        self.product.available_quantity = 8
+        self.product.save()
+
+        StockReservation.objects.create(order_id=order_uuid, product=self.product, quantity=2, status=StockReservation.reserved)
+
+        # first compensation (it should return 2 unities to storage -> quantity = 10)
+        payload1 = {
+            "event_id": str(uuid.uuid4()),
+            "event_type": "CompensateStock",
+            "data": {"order_id": str(order_uuid)}
+        }
+
+        process_storage_event(payload1, self.mock_redis, self.mock_channel)
+
+        # second compensation (it should NOT return 2 unities to storage -> quantity = 10)
+        payload2 = {
+            "event_id": str(uuid.uuid4()),
+            "event_type": "CompensateStock",
+            "data": {"order_id": str(order_uuid)}
+        }
+
+        process_storage_event(payload2, self.mock_redis, self.mock_channel)
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.available_quantity, 10)
+
+
+    def test_eda_out_of_stock_publishes_failure_event(self):
+        """
+        It must publish StockReservationFailure when there's insufficient balance
+        """
+        order_uuid = uuid.uuid4()
+        payload = {
+            "event_id": str(uuid.uuid4()),
+            "event_type": "OrderCreated",
+            "data": { 
+                "order_id": str(order_uuid),
+                "sku": "MOUSE-01",
+                "quantity": 50
+            }
+        }
+
+        result = process_storage_event(payload, self.mock_redis, self.mock_channel)
+
+        self.assertEqual(result, "TRANSACTION_FAILURE_PUBLISHED")
+        published_body = json.loads(self.mock_channel.basic_publish.call_args.kwargs["body"])
+        self.assertEqual(published_body[ "event_type"], "ReserveStockFailed")

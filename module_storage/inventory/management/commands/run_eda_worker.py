@@ -57,7 +57,7 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
     except (Product.DoesNotExist, OutOfstockError) as e:
         fail_event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ReservestockFailed",
+            "event_type": "ReserveStockFailed",
             "data": {
                 "order_id": data["order_id"],
                 "reason": str(e)
@@ -73,7 +73,7 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
 
         redis_client.setex(event_id, 600, "business_failure")
 
-        return "BUSINESS_FAILURE_PUBLISHED"
+        return "TRANSACTION_FAILURE_PUBLISHED"
 
     except Exception as e:
         redis_client.delete(event_id)
