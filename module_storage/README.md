@@ -1,4 +1,4 @@
-# Detailed Technical Manual: Stock Microservice (`module_storage`)
+# Stock Microservice (`module_storage`)
 
 Stock module, developed for the comparative benchmark between REST and EDA architectures (Final Thesis — MBA in Software Engineering, USP/Esalq).
 
@@ -125,18 +125,23 @@ The core event-processing function, decoupled from the network loop to enable is
 
 ---
 
-## 6. Automated Test Suite (`stock/tests/`)
+## 6. Automated Test Suite (`inventory/tests/`)
 
-### `stock/tests/test_rest_api.py` (`class StorageRestApiTests`)
+To execute all 8 automated tests (requires the `postgres-storage` container running):
+```bash
+python manage.py test
+```
 
-* **`setUp`**: Creates the HTTP test client and inserts the `NOTEBOOK-01` product with an stock balance of `5` into the temporary database.
-* **`test_reserve_stock_success`**: Sends a `POST` request for 2 units; validates the `200` response, updated stock balance of `3`, and creation of the `RESERVED` record with the exact UUID.
-* **`test_reserve_out_of_stock`**: Requests 10 units; validates the `400` response (`OUT_OF_STOCK`) and ensures the stock balance remains at `5`.
-* **`test_reserve_product_not_found`**: Sends a request with a nonexistent SKU and validates the `400` response (`ERROR`).
+### `inventory/tests/test_rest_api.py` (`class StorageRestApiTests`)
+* **`setUp`**: Initializes the Django test `Client` and inserts product `NOTEBOOK-01` with `available_quantity=5` into the isolated test database.
+* **`test_reserve_stock_success`**: Sends a `POST` request for `2` units; asserts HTTP `200`, verifies inventory decrements to `3`, and confirms a `RESERVED` record with the exact `UUID` exists.
+* **`test_reserve_out_of_stock`**: Requests `10` units; asserts HTTP `400` (`OUT_OF_STOCK`) and ensures inventory remains unchanged at `5`.
+* **`test_reserve_product_not_found`**: Sends an unregistered SKU; asserts HTTP `400` (`ERROR`).
 
-### `stock/tests/test_eda_worker.py` (`class StorageEdaWorkerTests`)
-
-* **`setUp`**: Creates the `MOUSE-01` product (stock balance of `10`) and initializes mocked objects (`MagicMock`) for the RabbitMQ channel and Redis client.
-* **`test_eda_pedido_criado_success`**: Simulates receiving a `PedidoCriado` event (quantity `3`); validates the `"RESERVED_PUBLISHED"` return value, updated stock balance of `7`, and a single call to `basic_publish`.
-* **`test_eda_idempotency_blocks_duplicate`**: Configures `mock_redis.set.return_value = False` (simulating an already existing key under the atomic `SET NX` lock); asserts the `"DUPLICATE_IGNORED"` return value, ensuring the stock balance remains at `10` and no message is published.
-* **`test_eda_compensate_stock_saga_rollback`**: Creates a prior reservation of 2 units (stock balance of 8) and sends a CompensarEstoque event; validates the "COMPENSATED" return value, restoration of the stock balance to 10, and update of the reservation status to COMPENSATED.
+### `inventory/tests/test_eda_worker.py` (`class StorageEdaWorkerTests`)
+* **`setUp`**: Inserts product `MOUSE-01` (balance `10`) and configures `MagicMock` instances for the RabbitMQ channel and Redis client (`mock_redis.set.return_value = True`).
+* **`test_eda_pedido_criado_success`**: Simulates receiving `PedidoCriado` for `3` units; asserts `"RESERVED_PUBLISHED"`, verifies inventory decrements to `7`, and confirms `basic_publish` is called once.
+* **`test_eda_idempotency_blocks_duplicate`**: Configures `mock_redis.set.return_value = False` (simulating an already existing key under the atomic `SET NX` lock); asserts `"DUPLICATE_IGNORED"`, ensuring inventory remains at `10` and no event is published.
+* **`test_eda_compensar_estoque_saga_rollback`**: Creates a prior reservation of `2` units (balance `8`) and dispatches `CompensarEstoque`; asserts `"COMPENSATED"`, verifies inventory returns to `10`, and confirms the reservation status updates to `COMPENSATED`.
+* **`test_eda_out_of_stock_publishes_failure_event`**: Simulates `PedidoCriado` requesting `50` units when only `10` are available; asserts `"BUSINESS_FAILURE_PUBLISHED"` and verifies that a `FalhaReservaEstoque` event is published to the broker.
+* **`test_eda_duplicate_compensation_does_not_inflate_stock`**: Dispatches two sequential `CompensarEstoque` events with distinct `event_id`s for the same `order_id`; ensures the inventory balance stops at `10` and is not inflated to `12`.
