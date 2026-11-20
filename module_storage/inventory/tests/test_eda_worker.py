@@ -87,7 +87,7 @@ class StorageEDAWorkTests(TestCase):
             order_id= order_uuid,
             product= self.product,
             quantity=2,
-            status="RESERVED" 
+            status=StockReservation.reserved
         )
 
         payload = {
@@ -98,11 +98,11 @@ class StorageEDAWorkTests(TestCase):
 
         result = process_storage_event(payload, self.mock_redis, self.mock_channel)
 
-        self.assertEqual(result, "COMPENSATED")
+        self.assertEqual(result, StockReservation.compensated)
 
         # ensures that stock has been updated back to the old value
         self.product.refresh_from_db()
         self.assertEqual(self.product.available_quantity, 10)
 
         reservation = StockReservation.objects.get(order_id=order_uuid)
-        self.assertEqual(reservation.status, "COMPENSATED")
+        self.assertEqual(reservation.status, StockReservation.compensated)
