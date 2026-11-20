@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterField(
-            model_name='inventoryreservation',
+            model_name='stockreservation',
             name='order_id',
             field=models.UUIDField(unique=True),
         ),
