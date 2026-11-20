@@ -1,13 +1,13 @@
-# Detailed Technical Manual: Inventory Microservice (`module_storage`)
+# Detailed Technical Manual: Stock Microservice (`module_storage`)
 
-Inventory module, developed for the comparative benchmark between REST and EDA architectures (Final Thesis — MBA in Software Engineering, USP/Esalq).
+Stock module, developed for the comparative benchmark between REST and EDA architectures (Final Thesis — MBA in Software Engineering, USP/Esalq).
 
 ---
 
 ## 1. Overview and Configuration (`config/`)
 
 * **`config/settings.py`**
-  * **`INSTALLED_APPS`**: Registers the local `'inventory'` application to enable ORM mapping and custom management commands.
+  * **`INSTALLED_APPS`**: Registers the local `'stock'` application to enable ORM mapping and custom management commands.
   * **`DATABASES['default']`**: Configures the `django.db.backends.postgresql` connector, pointing exclusively to the isolated `db_storage` database at host `127.0.0.1` and port `5433` (container `postgres-storage`), ensuring compliance with the *Database-per-Service* pattern.
 
 * **`config/urls.py`**
@@ -15,24 +15,24 @@ Inventory module, developed for the comparative benchmark between REST and EDA a
 
 ---
 
-## 2. Persistence Layer (`inventory/models/`)
+## 2. Persistence Layer (`stock/models/`)
 
 The data layer has been modularized into a Python package to separate entity responsibilities.
 
-### `inventory/models/__init__.py`
+### `stock/models/__init__.py`
 
 * **Lines 1–2**: Imports `Product` and `StockReservation` from their internal submodules.
-* **Line 4 (`__all__`)**: Exposes both classes at the `inventory.models` package level, allowing Django's `makemigrations` command to detect the models automatically.
+* **Line 4 (`__all__`)**: Exposes both classes at the `stock.models` package level, allowing Django's `makemigrations` command to detect the models automatically.
 
-### `inventory/models/product.py`
+### `stock/models/product.py`
 
-* **`class Product(models.Model)`**: Represents the product catalog and the physical inventory balance.
+* **`class Product(models.Model)`**: Represents the product catalog and the physical stock balance.
   * `sku = models.CharField(max_length=50, unique=True, primary_key=True)`: Defines the product's SKU as a unique textual primary key.
   * `name = models.CharField(max_length=150)`: Stores the product's name.
-  * `available_quantity = models.IntegerField(default=0)`: Stores the current available inventory quantity.
+  * `available_quantity = models.IntegerField(default=0)`: Stores the current available stock quantity.
   * `def __str__(self)`: Returns a human-readable representation (`SKU - Qty: X`) for logging and debugging.
 
-### `inventory/models/stock_reservation.py`
+### `stock/models/stock_reservation.py`
 
 * **`class StockReservation(models.Model)`**: An audit and state-management table required to implement logical rollbacks in the Saga Pattern.
   * `STATUS_CHOICES`: Defines the two possible reservation states (`RESERVED` for active reservations and `COMPENSATED` for reversed reservations).
@@ -44,7 +44,7 @@ The data layer has been modularized into a Python package to separate entity res
 
 ---
 
-## 3. Business Logic Layer (`inventory/services.py`)
+## 3. Business Logic Layer (`stock/services.py`)
 
 Contains the core business logic, fully decoupled from HTTP protocols and messaging infrastructure.
 
@@ -54,11 +54,11 @@ Contains the core business logic, fully decoupled from HTTP protocols and messag
 
 ### `def reserve_stock_strict(order_id: UUID, sku: str, quantity: int = 1) -> bool`
 
-Executes an inventory deduction while ensuring strong consistency under high concurrency (Chaos Engineering Scenario C):
+Executes an stock deduction while ensuring strong consistency under high concurrency (Chaos Engineering Scenario C):
 
 * **`with transaction.atomic():`**: Opens an ACID transaction in PostgreSQL. If any operation fails, all changes are rolled back.
 * **`product = Product.objects.select_for_update().get(sku=sku)`**: Executes a `SELECT ... FOR UPDATE` query against the database. This creates a pessimistic row-level lock, forcing concurrent requests for the same SKU to wait until the current transaction completes.
-* **`if product.available_quantity < quantity:`**: Checks the updated inventory balance. If insufficient, raises `OutOfStockError`.
+* **`if product.available_quantity < quantity:`**: Checks the updated stock balance. If insufficient, raises `OutOfStockError`.
 * **`product.available_quantity -= quantity` / `product.save()`**: Deducts the requested quantity and persists the updated balance.
 * **`StockReservation.objects.create(...)`**: Creates the reservation record with `RESERVED` status and returns `True`.
 
@@ -66,32 +66,32 @@ Executes an inventory deduction while ensuring strong consistency under high con
 
 Executes the compensation action (logical rollback) when a subsequent step in the distributed workflow fails:
 
-* **`with transaction.atomic():`**: Ensures atomicity when restoring the inventory balance.
+* **`with transaction.atomic():`**: Ensures atomicity when restoring the stock balance.
 * **`reservation = StockReservation.objects.select_for_update().filter(order_id=order_id, status="RESERVED").first()`**: Searches for the active reservation while locking its row to prevent duplicate compensations. If no active reservation is found (or it has already been compensated), returns `False`.
 * **`product = Product.objects.select_for_update().get(...)`**: Locks the corresponding product, restores the reserved quantity (`+= reservation.quantity`), and saves the updated balance.
 * **`reservation.status = "COMPENSATED"` / `reservation.save()`**: Marks the reservation as compensated for auditing purposes and returns `True`.
 
 ---
 
-## 4. Synchronous Entry Point — REST (`inventory/api/`)
+## 4. Synchronous Entry Point — REST (`stock/api/`)
 
-### `inventory/api/schemas.py`
+### `stock/api/schemas.py`
 
 * **`class ReserveStockRequest(Schema)`**: A Pydantic contract that automatically validates the JSON received by the HTTP endpoint (`order_id: UUID`, `sku: str`, `quantity: int = 1`).
 * **`class StockResponse(Schema)`**: A Pydantic contract that standardizes the JSON response (`status: str`, `message: str`).
 
-### `inventory/api/rest_api.py`
+### `stock/api/rest_api.py`
 
 * **`api = NinjaAPI(...)`**: Instantiates the high-performance API router and automatically generates OpenAPI/Swagger documentation.
 * **`@api.post("/reserve", response={200: StockResponse, 400: StockResponse})`**:
   * **`def reserve_stock_endpoint(request: HttpRequest, payload: ReserveStockRequest)`**: Receives the validated payload and invokes `reserve_stock_strict`.
   * **`return 200, ...`**: Returns a success response if the reservation is completed successfully.
   * **`except Product.DoesNotExist:`**: Catches invalid SKUs and returns `HTTP 400` (`status: "ERROR"`).
-  * **`except OutOfStockError as e:`**: Catches insufficient inventory errors and returns `HTTP 400` (`status: "OUT_OF_STOCK"`).
+  * **`except OutOfStockError as e:`**: Catches insufficient stock errors and returns `HTTP 400` (`status: "OUT_OF_STOCK"`).
 
 ---
 
-## 5. Asynchronous Entry Point — EDA (`inventory/management/commands/run_eda_worker.py`)
+## 5. Asynchronous Entry Point — EDA (`stock/management/commands/run_eda_worker.py`)
 
 ### `def process_storage_event(payload: dict, redis_client, channel) -> str`
 
@@ -125,18 +125,18 @@ The core event-processing function, decoupled from the network loop to enable is
 
 ---
 
-## 6. Automated Test Suite (`inventory/tests/`)
+## 6. Automated Test Suite (`stock/tests/`)
 
-### `inventory/tests/test_rest_api.py` (`class StorageRestApiTests`)
+### `stock/tests/test_rest_api.py` (`class StorageRestApiTests`)
 
-* **`setUp`**: Creates the HTTP test client and inserts the `NOTEBOOK-01` product with an inventory balance of `5` into the temporary database.
-* **`test_reserve_stock_success`**: Sends a `POST` request for 2 units; validates the `200` response, updated inventory balance of `3`, and creation of the `RESERVED` record with the exact UUID.
-* **`test_reserve_out_of_stock`**: Requests 10 units; validates the `400` response (`OUT_OF_STOCK`) and ensures the inventory balance remains at `5`.
+* **`setUp`**: Creates the HTTP test client and inserts the `NOTEBOOK-01` product with an stock balance of `5` into the temporary database.
+* **`test_reserve_stock_success`**: Sends a `POST` request for 2 units; validates the `200` response, updated stock balance of `3`, and creation of the `RESERVED` record with the exact UUID.
+* **`test_reserve_out_of_stock`**: Requests 10 units; validates the `400` response (`OUT_OF_STOCK`) and ensures the stock balance remains at `5`.
 * **`test_reserve_product_not_found`**: Sends a request with a nonexistent SKU and validates the `400` response (`ERROR`).
 
-### `inventory/tests/test_eda_worker.py` (`class StorageEdaWorkerTests`)
+### `stock/tests/test_eda_worker.py` (`class StorageEdaWorkerTests`)
 
-* **`setUp`**: Creates the `MOUSE-01` product (inventory balance of `10`) and initializes mocked objects (`MagicMock`) for the RabbitMQ channel and Redis client.
-* **`test_eda_pedido_criado_success`**: Simulates receiving a `PedidoCriado` event (quantity `3`); validates the `"RESERVED_PUBLISHED"` return value, updated inventory balance of `7`, and a single call to `basic_publish`.
-* **`test_eda_idempotency_blocks_duplicate`**: Configures `mock_redis.set.return_value = False` (simulating an already existing key under the atomic `SET NX` lock); asserts the `"DUPLICATE_IGNORED"` return value, ensuring the inventory balance remains at `10` and no message is published.
-* **`test_eda_compensate_inventory_saga_rollback`**: Creates a prior reservation of 2 units (inventory balance of 8) and sends a CompensarEstoque event; validates the "COMPENSATED" return value, restoration of the inventory balance to 10, and update of the reservation status to COMPENSATED.
+* **`setUp`**: Creates the `MOUSE-01` product (stock balance of `10`) and initializes mocked objects (`MagicMock`) for the RabbitMQ channel and Redis client.
+* **`test_eda_pedido_criado_success`**: Simulates receiving a `PedidoCriado` event (quantity `3`); validates the `"RESERVED_PUBLISHED"` return value, updated stock balance of `7`, and a single call to `basic_publish`.
+* **`test_eda_idempotency_blocks_duplicate`**: Configures `mock_redis.set.return_value = False` (simulating an already existing key under the atomic `SET NX` lock); asserts the `"DUPLICATE_IGNORED"` return value, ensuring the stock balance remains at `10` and no message is published.
+* **`test_eda_compensate_stock_saga_rollback`**: Creates a prior reservation of 2 units (stock balance of 8) and sends a CompensarEstoque event; validates the "COMPENSATED" return value, restoration of the stock balance to 10, and update of the reservation status to COMPENSATED.
