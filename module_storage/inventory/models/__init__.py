@@ -1,4 +1,4 @@
 from .product import Product
-from .inventory_reservation import InventoryReservation
+from .stock_reservation import StockReservation
 
-__all__ = ["Product", "InventoryReservation"]
+__all__ = ["Product", "StockReservation"]

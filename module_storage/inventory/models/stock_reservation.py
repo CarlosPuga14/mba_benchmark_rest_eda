@@ -1,7 +1,7 @@
 from django.db import models 
 from .product import Product
 
-class InventoryReservation(models.Model):
+class StockReservation(models.Model):
     STATUS_CHOICES = [
         (reserved:="RESERVED", "Reservado"),
         (compensated:="COMPENSATED", "Compensado (Rollback Saga)"),

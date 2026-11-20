@@ -2,7 +2,7 @@ import json
 import uuid
 
 from django.test import Client, TestCase
-from inventory.models import Product, InventoryReservation
+from inventory.models import Product, StockReservation
 
 
 class StorageRestApiTests(TestCase):
@@ -18,9 +18,9 @@ class StorageRestApiTests(TestCase):
             available_quantity=5
         )
 
-    def test_reserve_inventory_success(self):
+    def test_reserve_stock_success(self):
         """
-        It must reserve inventory and correctly decrement the available inventory quantity
+        It must reserve stock and correctly decrement the available stock quantity
         """
         order_uuid = uuid.uuid4()
         paylaod = {
@@ -39,10 +39,10 @@ class StorageRestApiTests(TestCase):
         self.assertEqual(self.product.available_quantity, 3)
 
         # checks if reservation was registrated
-        self.assertTrue(InventoryReservation.objects.filter(order_id=order_uuid, status="RESERVED").exists())
+        self.assertTrue(StockReservation.objects.filter(order_id=order_uuid, status="RESERVED").exists())
 
 
-    def test_reserve_out_of_inventory(self):
+    def test_reserve_out_of_stock(self):
         """
         It must return Error 400 if the desired quantity exceds total quantity available
         """
@@ -56,7 +56,7 @@ class StorageRestApiTests(TestCase):
         response = self.client.post(self.url, data=json.dumps(payload), content_type="application/json")
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()[ "status"], "OUT_OF_inventory")
+        self.assertEqual(response.json()[ "status"], "OUT_OF_stock")
 
         # Ensure that original quantity has not been alterated
         self.product.refresh_from_db()

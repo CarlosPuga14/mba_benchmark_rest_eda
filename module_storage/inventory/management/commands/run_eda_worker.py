@@ -5,7 +5,7 @@ import redis
 
 from django.core.management.base import BaseCommand
 from inventory.models import Product
-from inventory.services import OutOfinventoryError, compensate_inventory_sage, reserve_inventory_strict
+from inventory.services import OutOfstockError, compensate_stock_sage, reserve_stock_strict
 
 
 def process_storage_event(payload:dict, redis_client, channel) -> str:
@@ -22,17 +22,15 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
     if not is_new_event:
         return "DUPLICATE_IGNORED"
 
-    redis_client.setex(event_id, 600, "processing")
-
     try:
         order_uuid = uuid.UUID(data["order_id"])
 
         if event_type == "OrderCreated":
-            reserve_inventory_strict(order_id=order_uuid, sku=data["sku"], quantity=data.get("quantity", 1))
+            reserve_stock_strict(order_id=order_uuid, sku=data["sku"], quantity=data.get("quantity", 1))
 
             next_event = {
                 "event_id": str(uuid.uuid4()),
-                "event_type": "Reservedinventory",
+                "event_type": "Reservedstock",
                 "data": data
             }
 
@@ -47,8 +45,8 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
 
             return "RESERVED_PUBLISHED"
 
-        elif event_type == "CompensateInventory":
-            compensate_inventory_sage(order_id=order_uuid)
+        elif event_type == "CompensateStock":
+            compensate_stock_sage(order_id=order_uuid)
             
             redis_client.setex(event_id, 600, "concluded")
             
@@ -56,10 +54,10 @@ def process_storage_event(payload:dict, redis_client, channel) -> str:
 
         return "UNKNOWN_EVENT"
 
-    except (Product.DoesNotExist, OutOfinventoryError) as e:
+    except (Product.DoesNotExist, OutOfstockError) as e:
         fail_event = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "ReserveinventoryFailed",
+            "event_type": "ReservestockFailed",
             "data": {
                 "order_id": data["order_id"],
                 "reason": str(e)

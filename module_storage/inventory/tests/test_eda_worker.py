@@ -4,7 +4,7 @@ import uuid
 from unittest.mock import MagicMock
 from django.test import TestCase
 from inventory.management.commands.run_eda_worker import process_storage_event
-from inventory.models import Product, InventoryReservation
+from inventory.models import Product, StockReservation
 
 
 class StorageEDAWorkTests(TestCase):
@@ -19,12 +19,12 @@ class StorageEDAWorkTests(TestCase):
         self.mock_redis = MagicMock()
 
         # default: key does not exists in Redis
-        self.mock_redis.exists.return_value = True
+        self.mock_redis.set.return_value = True
 
 
     def test_eda_order_created_successfully(self):
         """
-        It must reserve inventory and publish InventoryReserved
+        It must reserve stock and publish StockReserved
         """
         order_uuid = uuid.uuid4()
         payload = {
@@ -51,7 +51,7 @@ class StorageEDAWorkTests(TestCase):
         It must ignore event if event_id already exists in Redis
         """
         # now the key exists
-        self.mock_redis.exists.return_value = False 
+        self.mock_redis.set.return_value = False 
 
         order_uuid = uuid.uuid4()
         payload = {
@@ -68,22 +68,22 @@ class StorageEDAWorkTests(TestCase):
 
         self.assertEqual(result, "DUPLICATE_IGNORED")
         
-        # ensures that inventory has not been modified
+        # ensures that stock has not been modified
         self.product.refresh_from_db()
         self.assertEqual(self.product.available_quantity, 10)
         self.mock_channel.basic_publish.assert_not_called()
 
 
-    def test_eda_compensate_inventory_saga_rollback(self):
+    def test_eda_compensate_stock_saga_rollback(self):
         """
-        It must return the item to the inventory when receive CompensateInventory
+        It must return the item to the stock when receive CompensateStock
         """
         order_uuid = uuid.uuid4()
 
         # simulate a previous reservation
         self.product.available_quantity = 8
         self.product.save()
-        InventoryReservation.objects.create(
+        StockReservation.objects.create(
             order_id= order_uuid,
             product= self.product,
             quantity=2,
@@ -92,7 +92,7 @@ class StorageEDAWorkTests(TestCase):
 
         payload = {
             "event_id": str(uuid.uuid4()),
-            "event_type": "CompensateInventory",
+            "event_type": "CompensateStock",
             "data": {"order_id": str(order_uuid)}
         }
 
@@ -100,9 +100,9 @@ class StorageEDAWorkTests(TestCase):
 
         self.assertEqual(result, "COMPENSATED")
 
-        # ensures that inventory has been updated back to the old value
+        # ensures that stock has been updated back to the old value
         self.product.refresh_from_db()
         self.assertEqual(self.product.available_quantity, 10)
 
-        reservation = InventoryReservation.objects.get(order_id=order_uuid)
+        reservation = StockReservation.objects.get(order_id=order_uuid)
         self.assertEqual(reservation.status, "COMPENSATED")
